@@ -25,13 +25,13 @@ public:
 
 std::list<Song> playlist;
 
-// TODO inserir uma música na playlist
+// inserir uma música na playlist
 void addSong () {
     system("clear");
     std::cout << "Aqui você escolhe qual música você quer adicionar" << std::endl;
 }
 
-// TODO remover uma música da playlist
+// remover uma música da playlist
 void removeSong () {
     system("clear");
     std::cout << "Aqui você escolhe qual música você quer remover" << std::endl;
@@ -49,7 +49,7 @@ int main () {
     // flag que controla se deve permanecer no menu principal ou não
     bool keep;
     do {
-        // TODO imprimir opções de caracteres a serem digitados pelo usuário
+        // imprimir opções de caracteres a serem digitados pelo usuário
         std::cout << "Olá, bem-vindo ao Music Player!" << std::endl;
         std::cout << "Opções..." << std::endl;
         // Lê o caractere que o usuário digitou
@@ -67,11 +67,16 @@ int main () {
                 sleep(2);
                 keep = true;
             } break;
-            case 'q': {
+            case 'q': { // sair do menu
                 std::cout << "Flw!" << std::endl;
                 sleep(2);
                 keep = false;
             } break;
+            case 'c': { // consultar música em execução
+                std::cout << "A musica em reprodução é: " << std::endl;
+                sleep(2);
+                break;
+            }
             default: {
                 std::cout << "Entrada inválida, tente novamente" << std::endl;
                 sleep(2);
