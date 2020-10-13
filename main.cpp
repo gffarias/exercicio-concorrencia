@@ -35,7 +35,7 @@ public:
         return os << "Título: " << o.title <<
         " | Artista: " << o.artist <<
         " | Álbum: " << o.album <<
-        " | Duração: " << o.duration << "s" << std::endl;
+        " | Duração: " << o.duration << "s";
     }
 };
 
@@ -133,11 +133,11 @@ int main () {
 
     do {
         // Menu do programa
-        std::cout << "\nMusic Player\n" <<
+        std::cout << "\n---Music Player---\n" <<
         "Pressione:\n" << 
-        "+ : Para adicionar músicas a Playlist\n" << 
+        "+ : Para adicionar músicas a playlist\n" << 
         "- : Para remover músicas da playlist\n" << 
-        "? : Para ver as músicas presentes na playlist\n" <<
+        "? : Para ver a música em execução atualmente na playlist\n" <<
         ". : Para encerrar a execução da playlist" << std::endl;
 
         // Lê o caractere que o usuário digitou
@@ -146,58 +146,60 @@ int main () {
 
         switch (input) {
             case '+': {
-                // TODO interação com usuário para inserção de música
-                std::cout << "As músicas disponíveis para adição na playlist são:" << std::endl;
+                // interação com usuário para inserção de música
+                std::cout << ">>>As músicas disponíveis para adição na playlist são:" << std::endl;
                 for (int i = 0; i < database.size(); i++){
                     // impressão das musicas disponíveis para adição na playlist (database)
                     std::cout << i << ": " << database[i] << std::endl;
                 }
                 
-                std::cout << "Informe a posição da música que você quer adicionar na playlist" << std::endl;
+                std::cout << ">>>Informe a posição da música que você quer adicionar na playlist" << std::endl;
                 int pos_database;
                 std::cin >> pos_database;
                 // Checagem do indice do database
-                if(pos_database < 0 || pos_database > database.size()){
-                    std::cout << "Indice inválido" << std::endl;
+                if(pos_database < 0 || pos_database >= database.size()){
+                    std::cout << ">>>Indice inválido" << std::endl;
                 } else{
-                    std::cout << "Informe em que posição da playlist você quer adicionar a música escolhida " << std::endl;
-                    int pos_playlist;
-                    std::cin >> pos_playlist;
-                    if (pos_playlist < 0){
-                        std::cout << "Indice inválido" << std::endl;
-                    } else{
-                        addSong(database[pos_database], pos_playlist);
-                        std::cout << "\nA música: " << database[pos_database] << 
-                        "foi adicionada na posição " << pos_playlist << 
-                        " da playlist com sucesso." << std:: endl;
+                    if (playlistContainsSong(database[pos_database])){
+                        std:: cout << ">>>Música já adicionada anteriormente." << std:: endl;
+                    }else{
+                        // Adiciona no final da playlist
+                        addSong(database[pos_database], playlist.size()); 
+                        std::cout << "\n>>>A música: " << database[pos_database] << 
+                        " foi adicionada no final da playlist com sucesso." << std:: endl; 
                     }
                 }
                 keep = true;
             } break;
             case '-': {
-                // TODO interação com usuário para remoção de música
-                int i;
-                /*std::cout << "Digite a posição na playlist em que a música será removida: " << std::endl;*/
-                std::cin >> i;
-                removeSong(i);
+                // interação com usuário para remoção de música
+                std:: cout << ">>>Removida a primeira música da playlist: " << playlist.front() << std::endl;
+                removeSong(0);
+
+                int i = 0;
+                std::cout << ">>>Estado atual da playlist: " << std::endl;
+                for (Song song: playlist){
+                    // impressão das musicas disponíveis na playlist após a remoção
+                    std::cout << i++ << ": " << song << std::endl;
+                }
                 keep = true;
             } break;
             case '?': {
                 try {
                     std::cout << getCurrentSong() << std::endl;
                 } catch (...) {
-                    std::cout << "A playlist está vazia" << std::endl;
+                    std::cout << ">>>A playlist está vazia" << std::endl;
                 }
                 keep = true;
             } break;
             case '.': {
                 quit();
-                std::cout << "O ciclo da playlist foi encerrado." << std::endl;
-                std::cout << "Espere até a última música acabar." << std::endl;
+                std::cout << ">>>O ciclo da playlist foi encerrado." << std::endl;
+                std::cout << ">>>Espere até a última música acabar." << std::endl;
                 keep = false;
             } break;
             default: {
-                std::cout << "Entrada inválida" << std::endl;
+                std::cout << ">>>Entrada inválida" << std::endl;
                 keep = true;
             }
         }
