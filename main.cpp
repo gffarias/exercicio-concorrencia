@@ -219,69 +219,71 @@ int main () {
     // flag que controla o menu principal
     bool keep;
 
+    initscr();
+
+    int qtdLinhas, qtdColunas, y0, x0, y1, x1, y2, x2, y3, x3, y4, x4, y5, x5, y6 , x6, y7, x7;
+
+    getmaxyx(stdscr, qtdLinhas, qtdColunas);
+
+    y0 = 0, x0 = 0; // Posição inicial de linhas e colunas
+    y1 = qtdLinhas-8, x1 = (qtdColunas / 2) - 1; //Total das linhas e colunas da janela 1
+
+    y2 = 0, x2 = (qtdColunas / 2) + 1; // Posição inicial de linhas e colunas
+    y3 = qtdLinhas-8, x3 = (qtdColunas / 2) - 1; //Total das linhas e colunas da janela 2
+
+    y4 = qtdLinhas-8, x4 = 0; // Posição inicial de linhas e colunas
+    y5 = 8; x5 = (qtdColunas/2)-1; //Total das linhas e colunas da janela 3
+
+    y6 = qtdLinhas-8, x6 = (qtdColunas / 2) + 1;// Posição inicial de linhas e colunas
+    y7 = 8; x7 = (qtdColunas/2)-1;//Total das linhas e colunas da janela 4
+
+    WINDOW *win1 = newwin(y1, x1, y0, x0);//Database
+    WINDOW *win2 = newwin(y3, x3, y2, x2);//Playlist
+    WINDOW *win3 = newwin(y5 , x5, y4, x4);//Menu
+    WINDOW *win4 = newwin(y7 , x7, y6, x6);//Reprodução
+    refresh();
+
+    box(win1, '|', '-');
+    box(win2, '|', '-');
+    box(win3, '|', '-');
+    box(win4, '|', '-');
+
+    wrefresh(win1);
+    wrefresh(win2);
+    wrefresh(win3);
+    wrefresh(win4);
+        
+    mvwprintw(win1, 0, 0, "Músicas disponíveis: "/*Título: | Artista: | Álbum: | Duração: "*/);
+    mvwprintw(win1, 1, 1, "Indice: | Título: | Artista: | Album: | Duração: ");
+    for (int i = 0, l = 2; i < database.size(); i++, l++){
+        // impressão das musicas disponíveis para adição na playlist
+        wmove(win1, l, 1);
+        wprintw(win1, "%d - %s", i, database[i].toString().c_str());
+    }
+
+    mvwprintw(win2, 0, 0, "Playlist: ");
+    mvwprintw(win2, 1, 1, "Título: | Artista: | Album: | Duração: ");
+    mvwprintw(win3, 0, 0, "Menu: "); // Menu do programa
+    mvwprintw(win3, 1, 1, "Pressione uma letra referente a ação desejada: ");
+    mvwprintw(win3, 2, 1, "+ : Para adicionar uma música à playlist");
+    mvwprintw(win3, 3, 1, "- : Para remover uma música da playlist");
+    mvwprintw(win3, 4, 1, ". : Para encerrar o ciclo de execução da playlist");
+    mvwprintw(win4, 0, 0, "Reproduzindo: ");
+        
+    wrefresh(win1); wrefresh(win2); wrefresh(win3); wrefresh(win4);
+
+    //endwin(); // encerrar as janelas (colocar só no final)
+
+    int l_playlist = 2; //Linha inicial da playlist
+    int l_interacao = 5; // Linha de interação com o usuário
+
     do {
-        initscr();
-
-        int qtdLinhas, qtdColunas, y0, x0, y1, x1, y2, x2, y3, x3, y4, x4, y5, x5, y6 , x6, y7, x7;
-
-        getmaxyx(stdscr, qtdLinhas, qtdColunas);
-
-        y0 = 0, x0 = 0; // Posição inicial de linhas e colunas
-        y1 = qtdLinhas-8, x1 = (qtdColunas / 2) - 1; //Total das linhas e colunas da janela 1
-
-        y2 = 0, x2 = (qtdColunas / 2) + 1; // Posição inicial de linhas e colunas
-        y3 = qtdLinhas-8, x3 = (qtdColunas / 2) - 1; //Total das linhas e colunas da janela 2
-
-        y4 = qtdLinhas-8, x4 = 0; // Posição inicial de linhas e colunas
-        y5 = 8; x5 = (qtdColunas/2)-1; //Total das linhas e colunas da janela 3
-
-        y6 = qtdLinhas-8, x6 = (qtdColunas / 2) + 1;// Posição inicial de linhas e colunas
-        y7 = 8; x7 = (qtdColunas/2)-1;//Total das linhas e colunas da janela 4
-
-        WINDOW *win1 = newwin(y1, x1, y0, x0);
-        WINDOW *win2 = newwin(y3, x3, y2, x2);
-        WINDOW *win3 = newwin(y5 , x5, y4, x4);
-        WINDOW *win4 = newwin(y7 , x7, y6, x6);
-        refresh();
-
-        box(win1, '|', '-');
-        box(win2, '|', '-');
-        box(win3, '|', '-');
-        box(win4, '|', '-');
-
-        wrefresh(win1);
-        wrefresh(win2);
-        wrefresh(win3);
-        wrefresh(win4);
+        wmove(win3,l_interacao,1); wrefresh(win3);
         
-        mvwprintw(win1, 0, 0, "Músicas disponíveis: "/*Título: | Artista: | Álbum: | Duração: "*/);
-        mvwprintw(win1, 1, 1, "Indice: | Título: | Artista: | Album: | Duração: ");
-        for (int i = 0, l = 2; i < database.size(); i++, l++){
-            // impressão das musicas disponíveis para adição na playlist
-            wmove(win1, l, 1);
-            wprintw(win1, "%d - %s", i, database[i].toString().c_str());
-        }
-
-        mvwprintw(win2, 0, 0, "Playlist: ");
-        mvwprintw(win3, 0, 0, "Menu: "); // Menu do programa
-        mvwprintw(win3, 1, 1, "Pressione uma letra referente a ação desejada: ");
-        mvwprintw(win3, 2, 1, "+ : Para adicionar uma música à playlist");
-        mvwprintw(win3, 3, 1, "- : Para remover uma música da playlist");
-        mvwprintw(win3, 4, 1, "? : Para ver a música atualmente em execução na playlist");
-        mvwprintw(win3, 5, 1, ". : Para encerrar o ciclo de execução da playlist");
-        mvwprintw(win4, 0, 0, "Reproduzindo: ");
-        
-        wrefresh(win1);
-        wrefresh(win2);
-        wrefresh(win3);
-        wrefresh(win4);
-        
-        wmove(win3,6,1);
-        wrefresh(win3);
-
-        //endwin(); // encerrar as janelas (colocar só no final)
-
         // Lê o caractere do menu digitado pelo usuário
+        wclrtoeol(win3);//Garante que a linha está limpa
+        wrefresh(win3);
+        echo();
         char input = wgetch(win3);
 
         switch (input) {
@@ -291,7 +293,11 @@ int main () {
                 keypad(win3, TRUE);
                 int move = wgetch(win3);
                 
-                int pos_database;
+                int pos_database = 0; //Tem que iniciar com zero, pois,
+                // caso a primeira tecla clicada após o '+' seja enter,
+                // significa que é a primeira música da database a ser adicionada.
+
+                char comando_invalido = 'n';
 
                 while(move != 10){ // Enter na tabela ASCII
                     int l = getcury(win1);
@@ -301,9 +307,9 @@ int main () {
                             wrefresh(win1);
                             pos_database = 0;//primeira musica da database
                         } else{
-                        wmove(win1,l-1,1); //sobe na database
-                        wrefresh(win1);
-                        pos_database = getcury(win1)-2;
+                            wmove(win1,l-1,1); //sobe na database
+                            wrefresh(win1);
+                            pos_database = getcury(win1)-2;
                         }
                     } else if (move==KEY_DOWN){
                         if (l+1>11){//Não passar dos limites das músicas da database
@@ -316,89 +322,58 @@ int main () {
                             pos_database = getcury(win1)-2;
                         }
                     } else {
-                        mvwprintw(win3, 6, 1, "Comando inválido");
+                        comando_invalido = 's';
+                        mvwprintw(win3, l_interacao, 1, "Comando inválido");
                         wrefresh(win3);
-                        //break;
+                        sleep(4);//Espera pra mostrar o print acima
+                        break;
                     }
                     noecho();
                     move = wgetch(win3);
                 }
 
-                mvwprintw(win3,6,1,"a posição da database é: %d",pos_database);
-                wrefresh(win3);
-                
-                getch();// só pra ver os prints acima
-                
-                //Verificar cores
-                
-                /*
-                if (playlistContainsSong(database[pos_database])){
-                    std::cout << "Música já adicionada anteriormente." << std::endl;
-                } else {
-                    // Adiciona no final da playlist
-                    addSong(database[pos_database]); 
-                    std::cout << "A música:" << std::endl;
-                    std::cout << database[pos_database] << std::endl;
-                    std::cout << "Foi adicionada ao final da playlist com sucesso." << std::endl;
-                }*/
-                //std::cin.get();
+                if(comando_invalido == 'n'){
+                    if (playlistContainsSong(database[pos_database])){
+                        mvwprintw(win3,l_interacao,1,"Música já adicionada anteriormente.");
+                        wrefresh(win3);
+                        sleep(4);//Espera pra mostrar o print acima
+                    } else {
+                        // Adiciona no final da playlist
+                        addSong(database[pos_database]); 
+                        mvwprintw(win2,l_playlist,1,"%s", database[pos_database].toString().c_str());
+                        wrefresh(win2);
+                        l_playlist++;
+                    }
+                }
                 keep = true;
             } break;
             case '-': {
-                printw("cheguei no -");
-                getch();
                 // interação com usuário para remoção de música
                 if (playlist.empty()) {
-                    std::cout << "A playlist está vazia." << std::endl;
+                    mvwprintw(win3, l_interacao,1, "A playlist está vazia.");
                 } else {
+                    
+                    
                     std::cout << "Removida a primeira música da playlist:" << std::endl;
                     std::cout << playlist.front() << std::endl;
                     removeSong();
-                    if (playlist.empty()) {
-                        std::cout << "A playlist agora está vazia." << std::endl;
-                    } else {
-                        int i = 0;
-                        std::cout << "Estado atual da playlist:" << std::endl;
-                        for (Song song: playlist){
-                            // impressão das musicas disponíveis na playlist após a remoção
-                            std::cout << i++ << " - " << song << std::endl;
-                        }
-                    }
+                    
                 }
-                std::cin.get();
-                keep = true;
-            } break;
-            case '?': {
-                printw("cheguei no ?");
-                getch();
-                
-                try {
-                    Song song = getCurrentSong();
-                    std::cout << "Tocando agora:" << std::endl;
-                    std::cout << song << std::endl;
-                } catch (NoSongException& e) {
-                    std::cout << e.what() << std::endl;
-                }
-                std::cin.get();
                 keep = true;
             } break;
             case '.': {
-                printw("cheguei no .");
-                getch();
                 quit();
                 if (playlist.empty()) {
-                    std::cout << "A playlist foi encerrada vazia." << std::endl;
+                    mvwprintw(win3, l_interacao,1,"A playlist foi encerrada vazia.");
                 } else {
-                    std::cout << "O ciclo da playlist foi encerrado." << std::endl;
-                    std::cout << "Espere até a última música acabar." << std::endl;
+                    mvwprintw(win3, l_interacao,1,"O ciclo da playlist foi encerrado.");
+                    mvwprintw(win3, l_interacao,1,"Espere até a última música acabar.");
                 }
                 keep = false;
             } break;
             default: {
-                printw("nenhum");
-                getch();
-                std::cout << "Entrada inválida." << std::endl;
-                std::cin.get();
+                mvwprintw(win3, l_interacao,1,"Entrada inválida.");
+                //std::cin.get();
                 keep = true;
             }
         }
