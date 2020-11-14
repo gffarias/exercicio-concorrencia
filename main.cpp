@@ -1,18 +1,94 @@
 #include <unistd.h>
-#include <pthread.h>
 #include <ncurses.h>
-#include <string>
+#include <pthread.h>
 #include <iostream>
 #include <list>
 #include <vector>
 #include <exception>
+#include <string>
+#include <set>
+#include <algorithm>
+#include <functional>
+#include <random>
+#include <chrono>
+
+std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+
+enum Prompt {
+    PROMPT_SELECT,
+    PROMPT_ADD,
+    PROMPT_REMOVE,
+    PROMPT_PAUSE,
+    PROMPT_CONTINUE,
+    PROMPT_QUIT,
+    PROMPT_SKIP,
+    PROMPT_RANDOM,
+    PROMPT_SEQUENTIAL
+};
+
+enum MenuState {
+    PAUSED,
+    HOME,
+    ADDING,
+    REMOVING,
+    QUITTED,
+    EMPTY
+};
+
+enum Order {
+    RANDOM,
+    SEQUENTIAL
+};
+
+std::string promptToString (Prompt p) {
+    std::string ans;
+    switch (p) {
+        case PROMPT_SELECT:
+            ans = "Enter selecionar";
+            break;
+        case PROMPT_PAUSE:
+            ans = "F5 pausar";
+            break;
+        case PROMPT_REMOVE:
+            ans = "Delete remover";
+            break;
+        case PROMPT_CONTINUE:
+            ans = "F5 retomar";
+            break;
+        case PROMPT_ADD:
+            ans = "Insert adicionar";
+            break;
+        case PROMPT_QUIT:
+            ans = "Esc sair";
+            break;
+        case PROMPT_RANDOM:
+            ans = "F7 ordem aleatória";
+            break;
+        case PROMPT_SKIP:
+            ans = "F6 pular";
+            break;
+        case PROMPT_SEQUENTIAL:
+            ans = "F7 ordem sequencial";
+            break;
+    }
+    return ans;
+}
+
+const int ID_F6 = 270;
+const int ID_ESC = 27;
+const int ID_INSERT = 331;
+const int ID_DELETE = 330;
+const int ID_F5 = 269;
+const int ID_ENTER = 10;
+const int ID_UP = 259;
+const int ID_DOWN = 258;
+const int ID_F7 = 271;
 
 class Song {
     std::string artist;
     std::string album;
     std::string title;
     int duration;
-
 public:
     Song (
         const std::string& artist,
@@ -25,6 +101,15 @@ public:
         title(title),
         duration(duration)
     {}
+    std::string getArtist () const {
+        return artist;
+    }
+    std::string getAlbum () const {
+        return album;
+    }
+    std::string getTitle () const {
+        return title;
+    }
     // acessa a duração da música (em segundos)
     int getDuration () const {
         return duration;
@@ -34,18 +119,8 @@ public:
     bool operator== (const Song& o) const {
         return artist == o.artist && album == o.album && title == o.title;
     }
-    // representação de objeto Song como string
-    friend std::ostream& operator<< (std::ostream& os, const Song& o) {
-        return os << "Título: " << o.title <<
-        " | Artista: " << o.artist <<
-        " | Álbum: " << o.album <<
-        " | Duração: " << o.duration << "s";
-    }
-    std::string toString () {
-        return title
-        + " | " + artist
-        + " | " + album
-        + " | " + std::to_string(duration) + "s";
+    bool operator< (const Song& o) const {
+        return std::make_tuple(artist, album, title) < std::make_tuple(o.artist, o.album, o.title);
     }
 };
 
@@ -55,333 +130,478 @@ public:
 std::list<Song> playlist;
 // Iterator que aponta para a música sendo tocada atualmente
 std::list<Song>::const_iterator currentlyPlaying;
+
+std::set<Song> alreadySelected;
+
+struct ScreenPosition {
+    int m, n, r, c;
+};
+
 // Flag que controla o loop da função play
-bool userQuitted;
+bool toQuit;
+bool toPause;
+bool toSkip;
+bool removeAt;
+
+int seconds;
+
+Order order;
 
 pthread_mutex_t mutex;
 pthread_cond_t emptyPlaylist;
+pthread_cond_t paused;
 
-// insere a música ao final da playlist
-void addSong (const Song& song) {
-    /* Como a variável playlist pode estar sendo acessada
-     * também pela thread playlistLoop, é preciso que
-     * a exclusão mútua seja garantida */
-    pthread_mutex_lock(&mutex);
-    playlist.push_back(song);
-    /* Uma vez que pelo menos música foi inserida, sinalizamos
-     * para a função play (que poderia estar aguardando)
-     * que a playlist não está mais vazia */
-    pthread_cond_signal(&emptyPlaylist);
-    pthread_mutex_unlock(&mutex);
-}
+int titleWidth = 5, artistWidth = 6, albumWidth = 5;
+ScreenPosition pos[5];
+WINDOW* win[5];
 
-// remove a primeira música da playlist
-void removeSong () {
-    /* Como as variáveis playlist e currentPlaying
-     * podem estar sendo acessadas
-     * também pela thread playlistLoop, é preciso que
-     * a exclusão mútua seja garantida */
-    pthread_mutex_lock(&mutex);
-    bool coincidence = currentlyPlaying == playlist.begin();
-    playlist.pop_front();
-    /* Aqui tratamos o caso excepcional em que a música sendo removida
-     * (a primeira) é justamente aquela sendo executada no momento
-     * Garantimos assim que o iterator não estará apontando
-     * para uma posição inválida, no momento que a função play o avançar */
-    if (coincidence) {
-        currentlyPlaying = playlist.end();
-    }
-    pthread_mutex_unlock(&mutex);
-}
-
-// checa se a música song já está na playlist ou não
-bool playlistContainsSong (const Song& song) {
-    for (const auto& it : playlist) {
-        if (it == song) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// encerra o loop da função play
-void quit () {
-    /* Como a variável userQuitted pode estar sendo
-     * acessada também pela thread playlistLoop,
-     * é preciso que a exclusão mútua seja garantida */
-    pthread_mutex_lock(&mutex);
-    userQuitted = true;
-    /* Poderia ocorrer de a playlist estar vazia,
-     * aguardando um sinal da variável emptyPlaylist
-     * Se não sinalizarmos, a função play ficará
-     * aguardando indefinidamente, e não encerrará,
-     * conforme desejado */
-    pthread_cond_signal(&emptyPlaylist);
-    pthread_mutex_unlock(&mutex);
-}
-
-class NoSongException : public std::exception {
-public:  
-    const char* what () const throw () {
-        return "A playlist está vazia.";
-    }
+/* Por simplicidade, representamos as músicas
+* disponíveis dentro de um vetor na memória principal
+* Além disso, para efeito de melhor visualização do funcionamento
+* do programa, colocamos cada música com uma duração
+* fictícia de apenas 3 segundos */
+const std::vector<Song> database = {
+    Song("The Beatles", "Help!", "Yesterday", 10),
+    Song("Pink Floyd", "The Dark Side of The Moon", "Time", 10),
+    Song("Led Zeppelin", "Physical Graffiti", "Kashmir", 10),
+    Song("Red Hot Chili Peppers", "Stadium Arcadium", "Dani California", 10),
+    Song("Dua Lipa", "Future Nostalgia", "Don't Start Now", 10)
 };
 
-/* Se a playlist está vazia, levanta uma exceção
- * Senão, retorna a música que está sendo executada no momento */
-Song getCurrentSong () {
-    /* Como a variável currentlyPlaying pode estar sendo
-     * acessada também pela thread playlistLoop,
-     * é preciso que a exclusão mútua seja garantida */
-    pthread_mutex_lock(&mutex);
-    if (playlist.empty()) {
-        pthread_mutex_unlock(&mutex);
-        throw NoSongException();
-    } else {
-        Song song = *currentlyPlaying;
-        pthread_mutex_unlock(&mutex);
-        return song;
+void printRow (int w, const Song& song, int i) {
+    wmove(win[w], 3 + i, 1);
+    wprintw(win[w], " %*s %*s %*s ",
+        titleWidth,
+        song.getTitle().c_str(),
+        artistWidth,
+        song.getArtist().c_str(),
+        albumWidth,
+        song.getAlbum().c_str()
+    );
+    int cnt = pos[w].n - 2 - (4 + titleWidth + artistWidth + albumWidth);
+    while (cnt--) {
+        wprintw(win[w], " ");
     }
 }
 
-/* A função play é um loop que simula a "execução" das músicas
- * Ela é executada numa thread separada do main: playlistLoop */
-void* play (void* args) {
-    while (true) {
-        /* O lock no mutex garante um acesso seguro à região crítica,
-         * no caso, às variáveis playlist, currentPlaying e userQuitted */
-        pthread_mutex_lock(&mutex);
-        if (userQuitted) {
-            pthread_mutex_unlock(&mutex);
-            /* Quando o usuário deseja encerrar o ciclo da playlist,
-            * a flag userQuitted é atribuída com true,
-            * e o loop da função play é parado */
-            break;
-        } else if (playlist.empty()) {
-            /* Enquanto a playlist estiver vazia, não há motivo para o
-             * loop prosseguir, já que não há músicas para iterar
-             * Aguardamos então o sinal da variável condicional emptyPlaylist,
-             * que ocorre quando a primeira música é finalmente adicionada */
-            pthread_cond_wait(&emptyPlaylist, &mutex);
-            pthread_mutex_unlock(&mutex);
-            /* Reinicializamos a variável condicional emptyPlaylist, pois
-             * a playlist pode voltar a ficar vazia */
-            pthread_cond_init(&emptyPlaylist, NULL);
-        } else {
-            /* O loop possui comportamento cíclico
-             * quando chega ao final, volta ao começo */
-            if (currentlyPlaying == playlist.cend()) {
-                currentlyPlaying = playlist.cbegin();
-            } else {
-                currentlyPlaying++;
+void next () {
+    if (std::next(currentlyPlaying) == playlist.cend()) {
+        currentlyPlaying = playlist.cbegin();
+    } else {
+        currentlyPlaying++;
+    }
+}
+
+void skip () {
+    if (playlist.size() > 1) {
+        switch (order) {
+            case RANDOM: {
+                int k = 1 + rng() % (playlist.size() - 2);
+                while (k--) {
+                    next();
+                }
+                break;
             }
-            int duration = currentlyPlaying->getDuration();
+            case SEQUENTIAL: {
+                next();
+                break;
+            }
+        }
+    }
+    seconds = 0;
+}
+
+void startPlaying () {
+    if (playlist.empty()) {
+        printRow(3, Song("", "", "", 0), 0);
+        mvwprintw(win[3], 4, pos[3].n/2 - 2, "--:--");
+    } else {
+        printRow(3, *currentlyPlaying, 0);
+        mvwprintw(win[3], 4, pos[3].n/2 - 2, "00:00");
+    }
+}
+
+void* playlistLoop (void* args) {
+    while (true) {
+        pthread_mutex_lock(&mutex);
+        if (toQuit) {
+            toQuit = false;
             pthread_mutex_unlock(&mutex);
-            // simulamos a "execução" da música com um thread sleep
-            sleep(duration);
+            break;
+        } else if (toPause) {
+            pthread_cond_wait(&paused, &mutex);
+            toPause = false;
+            pthread_mutex_unlock(&mutex);
+            pthread_cond_init(&paused, NULL);
+        } else if (playlist.empty()) {
+            pthread_cond_wait(&emptyPlaylist, &mutex);
+            currentlyPlaying = playlist.cbegin();
+            seconds = 0;
+            startPlaying();
+            pthread_mutex_unlock(&mutex);
+            wrefresh(win[3]);
+            pthread_cond_init(&emptyPlaylist, NULL);
+        } else if (removeAt) {
+            removeAt = false;
+            if (playlist.size() == 1) {
+                playlist.clear();
+            } else {
+                std::list<Song>::const_iterator it = currentlyPlaying;
+                skip();
+                playlist.erase(it);
+            }
+            startPlaying();
+            pthread_mutex_unlock(&mutex);
+            wrefresh(win[3]);
+        } else if (toSkip) {
+            toSkip = false;
+            skip();
+            startPlaying();
+            pthread_mutex_unlock(&mutex);
+            wrefresh(win[3]);
+        } else {
+            pthread_mutex_unlock(&mutex);
+            sleep(1);
+            pthread_mutex_lock(&mutex);
+            if (++seconds == currentlyPlaying->getDuration()) {
+                skip();
+                startPlaying();
+            } else {
+                mvwprintw(win[3], 4, pos[3].n/2 - 2, "%02d:%02d", seconds/60, seconds % 60);
+            }
+            pthread_mutex_unlock(&mutex);
+            wrefresh(win[3]);
         }
     }
     pthread_exit(NULL);
 }
 
-int main () {
-    /* Por simplicidade, representamos as músicas
-     * disponíveis dentro de um vetor na memória principal
-     * Além disso, para efeito de melhor visualização do funcionamento
-     * do programa, colocamos cada música com uma duração
-     * fictícia de apenas 3 segundos */
-    std::vector<Song> database = {
-        Song("The Beatles", "Help!", "Yesterday", 3),
-        Song("Pink Floyd", "The Dark Side of The Moon", "Time", 3),
-        Song("Led Zeppelin", "Physical Graffiti", "Kashmir", 3),
-        Song("Red Hot Chili Peppers", "Stadium Arcadium", "Dani California", 3),
-        Song("Dua Lipa", "Future Nostalgia", "Don't Start Now", 3),
-        Song("Caetano Veloso", "Cinema Transcendental", "Oração ao Tempo", 3),
-        Song("Chico Buarque", "Opera do Malandro", "Geni e o Zepelim", 3),
-        Song("Alcione", "A Voz do Samba", "Não Deixe o Samba Morrer", 3),
-        Song("Legião Urbana", "Dois", "Tempo Perdido", 3),
-        Song("Melim", "Melim", "Meu Abrigo", 3)
-    };
-
-    // inicializando o mutex e a variável condicional
-    pthread_mutex_init(&mutex, NULL);
-    pthread_cond_init(&emptyPlaylist, NULL);
-
-    // inicializando as variáveis na região crítica
-    userQuitted = false;
-    currentlyPlaying = playlist.cbegin();
-    // (a playlist começa vazia)
-
-    // inicializando a thread que executa o loop da playlist
-    pthread_t playlistLoop;
-    pthread_create(&playlistLoop, NULL, play, NULL);
-
-    // flag que controla o menu principal
-    bool keep;
-
-    initscr();
-
-    int qtdLinhas, qtdColunas, y0, x0, y1, x1, y2, x2, y3, x3, y4, x4, y5, x5, y6 , x6, y7, x7;
-
-    getmaxyx(stdscr, qtdLinhas, qtdColunas);
-
-    y0 = 0, x0 = 0; // Posição inicial de linhas e colunas
-    y1 = qtdLinhas-8, x1 = (qtdColunas / 2) - 1; //Total das linhas e colunas da janela 1
-
-    y2 = 0, x2 = (qtdColunas / 2) + 1; // Posição inicial de linhas e colunas
-    y3 = qtdLinhas-8, x3 = (qtdColunas / 2) - 1; //Total das linhas e colunas da janela 2
-
-    y4 = qtdLinhas-8, x4 = 0; // Posição inicial de linhas e colunas
-    y5 = 8; x5 = (qtdColunas/2)-1; //Total das linhas e colunas da janela 3
-
-    y6 = qtdLinhas-8, x6 = (qtdColunas / 2) + 1;// Posição inicial de linhas e colunas
-    y7 = 8; x7 = (qtdColunas/2)-1;//Total das linhas e colunas da janela 4
-
-    WINDOW *win1 = newwin(y1, x1, y0, x0);//Database
-    WINDOW *win2 = newwin(y3, x3, y2, x2);//Playlist
-    WINDOW *win3 = newwin(y5 , x5, y4, x4);//Menu
-    WINDOW *win4 = newwin(y7 , x7, y6, x6);//Reprodução
-    refresh();
-
-    box(win1, '|', '-');
-    box(win2, '|', '-');
-    box(win3, '|', '-');
-    box(win4, '|', '-');
-
-    wrefresh(win1);
-    wrefresh(win2);
-    wrefresh(win3);
-    wrefresh(win4);
-        
-    mvwprintw(win1, 0, 0, "Músicas disponíveis: "/*Título: | Artista: | Álbum: | Duração: "*/);
-    mvwprintw(win1, 1, 1, "Indice: | Título: | Artista: | Album: | Duração: ");
-    for (int i = 0, l = 2; i < database.size(); i++, l++){
-        // impressão das musicas disponíveis para adição na playlist
-        wmove(win1, l, 1);
-        wprintw(win1, "%d - %s", i, database[i].toString().c_str());
+bool add () {
+    bool extended = false;
+    int i = 0;
+    while (true) {
+        wattron(win[1], A_STANDOUT);
+        printRow(1, database[i], i);
+        wrefresh(win[1]);
+        wclear(win[4]);
+        wmove(win[4], 0, 0);
+        if (!alreadySelected.count(database[i])) {
+            wprintw(win[4], "\t%s\t", promptToString(PROMPT_SELECT).c_str());
+        }
+        wprintw(win[4], "\t%s\t", promptToString(PROMPT_QUIT).c_str());
+        wrefresh(win[4]);
+        int j;
+        int key = getch();
+        switch (key) {
+            case ID_ENTER:
+                if (!alreadySelected.count(database[i])) {
+                    pthread_mutex_lock(&mutex);
+                    playlist.push_back(database[i]);
+                    if (playlist.size() == 1) {
+                        pthread_cond_signal(&emptyPlaylist);
+                    }
+                    pthread_mutex_unlock(&mutex);
+                    extended = true;
+                    printRow(2, database[i], playlist.size() - 1);
+                    wrefresh(win[2]);
+                    alreadySelected.insert(database[i]);
+                    j = -1;
+                } else {
+                    j = i;
+                }
+            break;
+            case ID_UP:
+                j = i == 0 ? i : i - 1;
+            break;
+            case ID_DOWN:
+                j = i == database.size() - 1 ? i : i + 1;
+            break;
+            case ID_ESC:
+                j = -1;
+            break;
+        }
+        wattroff(win[1], A_STANDOUT);
+        printRow(1, database[i], i);
+        wrefresh(win[1]);
+        if (j == -1) {
+            break;
+        }
+        i = j;
     }
+    return extended;
+}
 
-    mvwprintw(win2, 0, 0, "Playlist: ");
-    mvwprintw(win2, 1, 1, "Título: | Artista: | Album: | Duração: ");
-    mvwprintw(win3, 0, 0, "Menu: "); // Menu do programa
-    mvwprintw(win3, 1, 1, "Pressione uma letra referente a ação desejada: ");
-    mvwprintw(win3, 2, 1, "+ : Para adicionar uma música à playlist");
-    mvwprintw(win3, 3, 1, "- : Para remover uma música da playlist");
-    mvwprintw(win3, 4, 1, ". : Para encerrar o ciclo de execução da playlist");
-    mvwprintw(win4, 0, 0, "Reproduzindo: ");
-        
-    wrefresh(win1); wrefresh(win2); wrefresh(win3); wrefresh(win4);
+bool remove () {
+    bool becameEmpty = false;
+    int i = 0;
+    std::list<Song>::const_iterator selector = playlist.cbegin();
+    while (true) {
+        wattron(win[2], A_STANDOUT);
+        printRow(2, *selector, i);
+        wrefresh(win[2]);
+        wattroff(win[2], A_STANDOUT);
+        wclear(win[4]);
+        wmove(win[4], 0, 0);
+        wprintw(win[4], "\t%s\t\t%s",
+            promptToString(PROMPT_SELECT).c_str(),
+            promptToString(PROMPT_QUIT).c_str()
+        );
+        wrefresh(win[4]);
+        int j;
+        std::list<Song>::const_iterator to;
+        int key = getch();
+        bool toErase = true;
+        switch (key) {
+            case ID_ENTER: {
+                pthread_mutex_lock(&mutex);
+                becameEmpty = playlist.size() == 1;
+                alreadySelected.erase(*selector);
+                printRow(2, Song("", "", "", 0), playlist.size() - 1);
+                if (currentlyPlaying == selector) {
+                    removeAt = true;
+                    int k = 0;
+                    auto it = playlist.cbegin();
+                    for (auto it = playlist.cbegin(); it != playlist.cend(); it++) {
+                        if (it == currentlyPlaying) {
+                            continue;
+                        }
+                        printRow(2, *it, k);
+                        k++;
+                    }
+                } else {
+                    playlist.erase(selector);
+                    auto it = playlist.cbegin();
+                    for (int k = 0; k < playlist.size(); k++) {
+                        printRow(2, *it, k);
+                        it++;
+                    }
+                }
+                pthread_mutex_unlock(&mutex);
+                wrefresh(win[2]);
+                j = -1;
+                toErase = false;
+                break;
+            }
+            case ID_UP:
+                if (i == 0) {
+                    j = i;
+                    to = selector;
+                } else {
+                    j = i - 1;
+                    to = std::prev(selector);
+                }
+                break;
+            case ID_DOWN:
+                if (i == playlist.size() - 1) {
+                    j = i;
+                    to = selector;
+                } else {
+                    to = std::next(selector);
+                    j = i + 1;
+                }
+                break;
+            case ID_ESC:
+                j = -1;
+                break;
+        }
+        if (toErase) {
+            printRow(2, *selector, i);
+            wrefresh(win[2]);
+        }
+        i = j;
+        selector = to;
+        if (j == -1) {
+            break;
+        }
+    }
+    return becameEmpty;
+}
 
-    //endwin(); // encerrar as janelas (colocar só no final)
+void quit () {
+    pthread_mutex_lock(&mutex);
+    toQuit = true;
+    if (playlist.empty()) {
+        pthread_cond_signal(&emptyPlaylist);
+    }
+    pthread_mutex_unlock(&mutex);
+}
 
-    int l_playlist = 2; //Linha inicial da playlist
-    int l_interacao = 5; // Linha de interação com o usuário
+void* userInterface (void* args) {
+    
+    getmaxyx(stdscr, pos[0].m, pos[0].n);
+    pos[1].m = pos[2].m = pos[0].m - 7;
+    pos[1].n = pos[0].n/2, pos[2].n = pos[0].n - pos[1].n;
+    pos[1].r = pos[1].c = 0;
+    pos[2].r = 0, pos[2].c = pos[1].n;
+    pos[3].m = 1 + 4 + 1, pos[3].n = pos[0].n;
+    pos[3].r = pos[1].m, pos[3].c = 0;
+    pos[4].m = 1, pos[4].c = pos[0].n;
+    pos[4].r = pos[1].m + pos[3].m, pos[4].c = 0;
+    
+    for (int i = 1; i < 5; i++) {
+        win[i] = newwin(pos[i].m, pos[i].n, pos[i].r, pos[i].c);
+    }
+    refresh();
+    for (int i = 1; i < 4; i++) {
+        box(win[i], '|', '-');
+        wrefresh(win[i]);
+    }
+    for (const Song& it : database) {
+        titleWidth = std::max(titleWidth, int(it.getTitle().length()));
+        artistWidth = std::max(artistWidth, int(it.getArtist().length()));
+        albumWidth = std::max(albumWidth, int(it.getAlbum().length()));
+    }
+    mvwprintw(win[1], 0, 1, "Available Songs");
+    mvwprintw(win[1], 1, 1, " %*s %*s %*s ", titleWidth, "Title", artistWidth, "Artist", albumWidth, "Album");
+    wmove(win[1], 2, 1);
+    for (int j = 0; j < pos[1].n - 2; j++) {
+        wprintw(win[1], "-");
+    }
+    for (int i = 0; i < database.size(); i++) {
+        printRow(1, database[i], i);
+    }
+    wrefresh(win[1]);
 
+    mvwprintw(win[2], 0, 1, "Playlist");
+    mvwprintw(win[2], 1, 1, " %*s %*s %*s ", titleWidth, "Title", artistWidth, "Artist", albumWidth, "Album");
+    wmove(win[2], 2, 1);
+    for (int j = 0; j < pos[2].n - 2; j++) {
+        wprintw(win[2], "-");
+    }
+    wrefresh(win[2]);
+
+    mvwprintw(win[3], 0, 1, "Playing Now");
+    mvwprintw(win[3], 1, 1, " %*s %*s %*s ", titleWidth, "Title", artistWidth, "Artist", albumWidth, "Album");
+    wmove(win[3], 2, 1);
+    for (int j = 0; j < pos[3].n - 2; j++) {
+        wprintw(win[3], "-");
+    }
+    wmove(win[3], 4, 1);
+    startPlaying();
+    wrefresh(win[3]);
+
+    MenuState currentState = EMPTY;
     do {
-        wmove(win3,l_interacao,1); wrefresh(win3);
-        
-        // Lê o caractere do menu digitado pelo usuário
-        wclrtoeol(win3);//Garante que a linha está limpa
-        wrefresh(win3);
-        echo();
-        char input = wgetch(win3);
-
-        switch (input) {
-            case '+': {
-                wmove(win1,2,1); // Topo da database
-                wrefresh(win1);
-                keypad(win3, TRUE);
-                int move = wgetch(win3);
-                
-                int pos_database = 0; //Tem que iniciar com zero, pois,
-                // caso a primeira tecla clicada após o '+' seja enter,
-                // significa que é a primeira música da database a ser adicionada.
-
-                char comando_invalido = 'n';
-
-                while(move != 10){ // Enter na tabela ASCII
-                    int l = getcury(win1);
-                    if (move==KEY_UP){
-                        if (l-1<2){ //Não passar dos limites das músicas da database
-                            wmove(win1,2,1);
-                            wrefresh(win1);
-                            pos_database = 0;//primeira musica da database
-                        } else{
-                            wmove(win1,l-1,1); //sobe na database
-                            wrefresh(win1);
-                            pos_database = getcury(win1)-2;
+        wclear(win[4]);
+        wmove(win[4], 0, 0);
+        switch (currentState) {
+            case EMPTY: {
+                wprintw(win[4], "\t%s\t\t%s",
+                    promptToString(PROMPT_ADD).c_str(),
+                    promptToString(PROMPT_QUIT).c_str()
+                );
+                wrefresh(win[4]);
+                int key = getch();
+                switch (key) {
+                    case ID_INSERT:
+                        if (add()) {
+                            currentState = HOME;
                         }
-                    } else if (move==KEY_DOWN){
-                        if (l+1>11){//Não passar dos limites das músicas da database
-                            wmove(win1,11,1);
-                            wrefresh(win1);
-                            pos_database = 9; //mudar caso aumente o numero de músicas da database;
-                        } else{
-                            wmove(win1,l+1,1); // desce na database
-                            wrefresh(win1);
-                            pos_database = getcury(win1)-2;
-                        }
-                    } else {
-                        comando_invalido = 's';
-                        mvwprintw(win3, l_interacao, 1, "Comando inválido");
-                        wrefresh(win3);
-                        sleep(4);//Espera pra mostrar o print acima
                         break;
-                    }
-                    noecho();
-                    move = wgetch(win3);
+                    case ID_ESC:
+                        quit();
+                        currentState = QUITTED;
+                        break;
                 }
-
-                if(comando_invalido == 'n'){
-                    if (playlistContainsSong(database[pos_database])){
-                        mvwprintw(win3,l_interacao,1,"Música já adicionada anteriormente.");
-                        wrefresh(win3);
-                        sleep(4);//Espera pra mostrar o print acima
-                    } else {
-                        // Adiciona no final da playlist
-                        addSong(database[pos_database]); 
-                        mvwprintw(win2,l_playlist,1,"%s", database[pos_database].toString().c_str());
-                        wrefresh(win2);
-                        l_playlist++;
-                    }
+                break;
+            }
+            case HOME: {
+                wprintw(win[4], "\t%s\t\t%s\t\t%s\t\t%s\t\t%s\t\t%s",
+                    promptToString(PROMPT_ADD).c_str(),
+                    promptToString(PROMPT_REMOVE).c_str(),
+                    promptToString(PROMPT_PAUSE).c_str(),
+                    promptToString(PROMPT_SKIP).c_str(),
+                    promptToString(order == RANDOM ? PROMPT_SEQUENTIAL : PROMPT_RANDOM).c_str(),
+                    promptToString(PROMPT_QUIT).c_str()
+                );
+                wrefresh(win[4]);
+                int key = getch();
+                switch (key) {
+                    case ID_INSERT:
+                        add();
+                        break;
+                    case ID_DELETE:
+                        if (remove()) {
+                            currentState = EMPTY;
+                        }
+                        break;
+                    case ID_F5:
+                        pthread_mutex_lock(&mutex);
+                        toPause = true;
+                        pthread_mutex_unlock(&mutex);
+                        currentState = PAUSED;
+                        break;
+                    case ID_F6:
+                        pthread_mutex_lock(&mutex);
+                        toSkip = true;
+                        pthread_mutex_unlock(&mutex);
+                        break;
+                    case ID_F7:
+                        pthread_mutex_lock(&mutex);
+                        switch (order) {
+                            case RANDOM:
+                                order = SEQUENTIAL;
+                                break;
+                            case SEQUENTIAL:
+                                order = RANDOM;
+                                break;
+                        }
+                        pthread_mutex_unlock(&mutex);
+                    case ID_ESC:
+                        quit();
+                        currentState = QUITTED;
+                        break;
                 }
-                keep = true;
-            } break;
-            case '-': {
-                // interação com usuário para remoção de música
-                if (playlist.empty()) {
-                    mvwprintw(win3, l_interacao,1, "A playlist está vazia.");
-                } else {
-                    
-                    
-                    std::cout << "Removida a primeira música da playlist:" << std::endl;
-                    std::cout << playlist.front() << std::endl;
-                    removeSong();
-                    
+                break;
+            }
+            case PAUSED: {
+                wprintw(win[4], "\t%s",
+                    promptToString(PROMPT_CONTINUE).c_str()
+                );
+                wrefresh(win[4]);
+                int key = getch();
+                switch (key) {
+                    case ID_F5:
+                        pthread_mutex_lock(&mutex);
+                        pthread_cond_signal(&paused);
+                        pthread_mutex_unlock(&mutex);
+                        currentState = HOME;
+                        break;
                 }
-                keep = true;
-            } break;
-            case '.': {
-                quit();
-                if (playlist.empty()) {
-                    mvwprintw(win3, l_interacao,1,"A playlist foi encerrada vazia.");
-                } else {
-                    mvwprintw(win3, l_interacao,1,"O ciclo da playlist foi encerrado.");
-                    mvwprintw(win3, l_interacao,1,"Espere até a última música acabar.");
-                }
-                keep = false;
-            } break;
-            default: {
-                mvwprintw(win3, l_interacao,1,"Entrada inválida.");
-                //std::cin.get();
-                keep = true;
+                break;
             }
         }
-    } while (keep);
-    
-    pthread_join(playlistLoop, NULL);
+    } while (currentState != QUITTED);
+    pthread_exit(NULL);
+}
 
-    // destruindo o mutex e variável condicional
+int main () {
+
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&emptyPlaylist, NULL);
+    pthread_cond_init(&paused, NULL);
+
+    toQuit = false;
+    toPause = false;
+    toSkip = false;
+    removeAt = false;
+    order = SEQUENTIAL;
+
+    initscr();
+    noecho();
+    curs_set(0);
+    keypad(stdscr, TRUE);
+
+    pthread_t playlistLoopThread, userInterfaceThread;
+    pthread_create(&playlistLoopThread, NULL, playlistLoop, NULL);
+    pthread_create(&userInterfaceThread, NULL, userInterface, NULL);
+
+    pthread_join(playlistLoopThread, NULL);
+    pthread_join(userInterfaceThread, NULL);
+
+    endwin();
+
     pthread_mutex_destroy(&mutex);
     pthread_cond_destroy(&emptyPlaylist);
+    pthread_cond_destroy(&paused);
 }
