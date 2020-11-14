@@ -13,6 +13,7 @@
 #include <chrono>
 
 std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+std::uniform_int_distribution<int> uid;
 
 enum Prompt {
     PROMPT_SELECT,
@@ -47,42 +48,42 @@ std::string promptToString (Prompt p) {
             ans = "Enter selecionar";
             break;
         case PROMPT_PAUSE:
-            ans = "F5 pausar";
+            ans = "p pausar";
             break;
         case PROMPT_REMOVE:
             ans = "Delete remover";
             break;
         case PROMPT_CONTINUE:
-            ans = "F5 retomar";
+            ans = "p retomar";
             break;
         case PROMPT_ADD:
             ans = "Insert adicionar";
             break;
         case PROMPT_QUIT:
-            ans = "Esc sair";
+            ans = "Backspace sair";
             break;
         case PROMPT_RANDOM:
-            ans = "F7 ordem aleatória";
+            ans = "r ordem aleatória";
             break;
         case PROMPT_SKIP:
-            ans = "F6 pular";
+            ans = "s pular";
             break;
         case PROMPT_SEQUENTIAL:
-            ans = "F7 ordem sequencial";
+            ans = "r ordem sequencial";
             break;
     }
     return ans;
 }
 
-const int ID_F6 = 270;
-const int ID_ESC = 27;
+const int ID_F6 = 's';
+const int ID_BACKSPACE = 263;
 const int ID_INSERT = 331;
 const int ID_DELETE = 330;
-const int ID_F5 = 269;
+const int ID_F5 = 'p';
 const int ID_ENTER = 10;
 const int ID_UP = 259;
 const int ID_DOWN = 258;
-const int ID_F7 = 271;
+const int ID_F7 = 'r';
 
 class Song {
     std::string artist;
@@ -161,11 +162,27 @@ WINDOW* win[5];
 * do programa, colocamos cada música com uma duração
 * fictícia de apenas 3 segundos */
 const std::vector<Song> database = {
-    Song("The Beatles", "Help!", "Yesterday", 10),
-    Song("Pink Floyd", "The Dark Side of The Moon", "Time", 10),
-    Song("Led Zeppelin", "Physical Graffiti", "Kashmir", 10),
-    Song("Red Hot Chili Peppers", "Stadium Arcadium", "Dani California", 10),
-    Song("Dua Lipa", "Future Nostalgia", "Don't Start Now", 10)
+    Song("The Beatles", "Help!", "Yesterday", 125),
+    Song("Pink Floyd", "The Dark Side of The Moon", "Time", 408),
+    Song("Led Zeppelin", "Physical Graffiti", "Kashmir", 517),
+    Song("Red Hot Chili Peppers", "Stadium Arcadium", "Slow Cheetah", 319),
+    Song("Dua Lipa", "Future Nostalgia", "Don't Start Now", 182),
+    Song("Arctic Monkeys", "AM", "Arabella", 209),
+    Song("Tame Impala", "Currents", "Let it Happen", 256),
+    Song("Ed Sheeran", "X", "Don't", 219),
+    Song("Gotye", "Making Mirrors", "Somebody That I Used to Know", 243),
+    Song("Queen", "Hot Space", "Under Pressure", 248),
+    Song("Yes", "Fragile", "Roundabout", 515),
+    Song("R.E.M.", "Out of Time", "Losing My Religion", 269),
+    Song("21 Pilots", "Stressed Out", "Stressed Out", 225),
+    Song("Adele", "25", "Hello", 366),
+    Song("Childish Gambino", "This is America", "This is America", 244),
+    Song("Nirvana", "Nevermind", "In Bloom", 255),
+    Song("Black Sabbath", "Paranoid", "Iron Man", 353),
+    Song("Ariana Grande", "Positions", "positions", 158),
+    Song("The Smiths", "The Queen is Dead", "Bigmouth Strikes Again", 191),
+    Song("A-ha", "Hunting High and Low", "Take on Me", 244),
+    Song("Eminem", "8 Mile - Soundtrack", "Love Yourself", 323)
 };
 
 void printRow (int w, const Song& song, int i) {
@@ -185,10 +202,9 @@ void printRow (int w, const Song& song, int i) {
 }
 
 void next () {
-    if (std::next(currentlyPlaying) == playlist.cend()) {
+    currentlyPlaying++;
+    if (currentlyPlaying == playlist.cend()) {
         currentlyPlaying = playlist.cbegin();
-    } else {
-        currentlyPlaying++;
     }
 }
 
@@ -196,7 +212,7 @@ void skip () {
     if (playlist.size() > 1) {
         switch (order) {
             case RANDOM: {
-                int k = 1 + rng() % (playlist.size() - 2);
+                int k = 1 + uid(rng) % (playlist.size() - 1);
                 while (k--) {
                     next();
                 }
@@ -316,7 +332,7 @@ bool add () {
             case ID_DOWN:
                 j = i == database.size() - 1 ? i : i + 1;
             break;
-            case ID_ESC:
+            case ID_BACKSPACE:
                 j = -1;
             break;
         }
@@ -400,7 +416,7 @@ bool remove () {
                     j = i + 1;
                 }
                 break;
-            case ID_ESC:
+            case ID_BACKSPACE:
                 j = -1;
                 break;
         }
@@ -498,7 +514,7 @@ void* userInterface (void* args) {
                             currentState = HOME;
                         }
                         break;
-                    case ID_ESC:
+                    case ID_BACKSPACE:
                         quit();
                         currentState = QUITTED;
                         break;
@@ -536,18 +552,12 @@ void* userInterface (void* args) {
                         toSkip = true;
                         pthread_mutex_unlock(&mutex);
                         break;
-                    case ID_F7:
+                    case ID_F7:                    
                         pthread_mutex_lock(&mutex);
-                        switch (order) {
-                            case RANDOM:
-                                order = SEQUENTIAL;
-                                break;
-                            case SEQUENTIAL:
-                                order = RANDOM;
-                                break;
-                        }
+                        order = order == RANDOM ? SEQUENTIAL : RANDOM;
                         pthread_mutex_unlock(&mutex);
-                    case ID_ESC:
+                        break;
+                    case ID_BACKSPACE:
                         quit();
                         currentState = QUITTED;
                         break;
